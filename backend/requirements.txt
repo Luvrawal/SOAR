@@ -6,3 +6,10 @@ psycopg2-binary==2.9.10
 alembic==1.16.5
 celery==5.5.3
 redis==6.4.0
+requests
+pandas
+python-dotenv
+colorama
+fpdf2
+pytest
+httpx

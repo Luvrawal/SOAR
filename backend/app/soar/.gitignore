@@ -1,0 +1,6 @@
+.env
+venv/
+__pycache__/
+*.pyc
+option1_datasets/
+reports/

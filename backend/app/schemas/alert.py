@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AlertCreate(BaseModel):
@@ -11,6 +11,11 @@ class AlertCreate(BaseModel):
     description: str | None = Field(default=None, max_length=5000)
     raw_alert: dict | None = None
     created_by: int | None = None
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def normalize_severity(cls, value: str) -> str:
+        return str(value).lower()
 
 
 class IncidentResponse(BaseModel):

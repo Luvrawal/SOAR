@@ -1,0 +1,73 @@
+{
+    "incident_id": "INC-20260407231824",
+    "playbook_name": "Brute Force Detection Playbook",
+    "mitre_technique": "T1110 - Brute Force",
+    "alert_type": "BRUTE_FORCE_DETECTED",
+    "severity": "CRITICAL",
+    "risk_score": 100,
+    "status": "CLOSED",
+    "start_time": "2026-04-07 23:18:24",
+    "end_time": "2026-04-07 23:18:24",
+    "alert_details": {
+        "attacker_ip": "10.10.10.11",
+        "target_ip": "192.168.1.1",
+        "target_port": 22,
+        "failed_attempts": 13,
+        "usernames_tried": [
+            "admin",
+            "root",
+            "user",
+            "test"
+        ],
+        "risk_score": 95,
+        "reasons": [
+            "[HIGH] test reason"
+        ],
+        "protocol": "SSH"
+    },
+    "threat_intel": {
+        "virustotal": {
+            "source": "VirusTotal",
+            "error": "VIRUSTOTAL_API_KEY_not_configured",
+            "degraded": true
+        },
+        "abuseipdb": {
+            "source": "AbuseIPDB",
+            "error": "ABUSEIPDB_API_KEY_not_configured",
+            "degraded": true
+        },
+        "alienvault": {
+            "source": "AlienVault OTX",
+            "error": "ALIENVAULT_API_KEY_not_configured",
+            "degraded": true
+        }
+    },
+    "response_taken": [
+        {
+            "action": "BLOCK IP 10.10.10.11 on firewall immediately",
+            "timestamp": "2026-04-07 23:18:24",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Lock all targeted user accounts",
+            "timestamp": "2026-04-07 23:18:24",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Alert SOC team - immediate investigation required",
+            "timestamp": "2026-04-07 23:18:24",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Capture network traffic for forensic analysis",
+            "timestamp": "2026-04-07 23:18:24",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Escalate to Incident Response team",
+            "timestamp": "2026-04-07 23:18:24",
+            "status": "COMPLETED"
+        }
+    ],
+    "source": "option2_simulation"
+}

@@ -1,27 +1,80 @@
 from datetime import datetime, timezone
+import logging
+from time import perf_counter
 import traceback
 
 from sqlalchemy.orm import Session
 
 from app.models.incident import Incident
 from app.models.playbook_execution import PlaybookExecution
+from app.soar.main import run_playbook as run_soar_playbook
+
+logger = logging.getLogger(__name__)
 
 
-def run_playbook(incident_id: int) -> dict[str, str | int | bool]:
-    # Placeholder integration point for teammate-owned playbook engine.
+def _build_playbook_alert(incident: Incident) -> dict[str, str | dict | None]:
+    raw_alert = incident.raw_alert or {}
+
+    if isinstance(raw_alert, dict) and raw_alert.get("alert_type") and raw_alert.get("details"):
+        return {
+            "alert_type": str(raw_alert.get("alert_type")),
+            "severity": str(raw_alert.get("severity") or incident.severity).upper(),
+            "timestamp": str(raw_alert.get("timestamp") or incident.created_at.isoformat()),
+            "source": str(raw_alert.get("source") or incident.source),
+            "details": raw_alert.get("details") if isinstance(raw_alert.get("details"), dict) else {},
+        }
+
+    details = raw_alert if isinstance(raw_alert, dict) else {}
     return {
-        "incident_id": incident_id,
-        "playbook": "default_triage",
-        "action_taken": "enrichment_completed",
+        "alert_type": str(raw_alert.get("alert_type") if isinstance(raw_alert, dict) else incident.source).upper(),
+        "severity": str(incident.severity).upper(),
+        "timestamp": incident.created_at.isoformat(),
+        "source": incident.source,
+        "details": details,
+    }
+
+
+def run_playbook(incident: Incident) -> dict[str, str | int | bool | dict]:
+    started_at = perf_counter()
+    alert_payload = _build_playbook_alert(incident)
+    report = run_soar_playbook(alert_payload)
+
+    if not report:
+        return {
+            "incident_id": incident.id,
+            "success": False,
+            "error": "unsupported_alert_type",
+            "alert_type": alert_payload.get("alert_type", "unknown"),
+            "execution_duration_ms": int((perf_counter() - started_at) * 1000),
+        }
+
+    threat_intel = report.get("threat_intel", {}) if isinstance(report, dict) else {}
+    provider_errors = {
+        provider: str(data.get("error"))
+        for provider, data in threat_intel.items()
+        if isinstance(data, dict) and data.get("error")
+    }
+
+    return {
+        "incident_id": incident.id,
         "success": True,
+        "playbook": str(report.get("playbook_name", "unknown")),
+        "severity": str(report.get("severity", "unknown")),
+        "risk_score": int(report.get("risk_score", 0)),
+        "execution_duration_ms": int((perf_counter() - started_at) * 1000),
+        "degraded_threat_intel": bool(provider_errors),
+        "provider_errors": provider_errors,
+        "report": report,
     }
 
 
 def execute_playbook_for_incident(
     db: Session, incident_id: int, task_id: str | None = None
 ) -> dict[str, str | int | bool]:
+    started_at = perf_counter()
     incident = db.get(Incident, incident_id)
     if incident is None:
+        logger.warning("Incident not found for playbook execution", extra={"incident_id": incident_id, "task_id": task_id})
         return {
             "incident_id": incident_id,
             "success": False,
@@ -42,40 +95,71 @@ def execute_playbook_for_incident(
     db.refresh(execution)
 
     try:
-        result = run_playbook(incident_id=incident_id)
+        logger.info(
+            "Starting playbook execution",
+            extra={"incident_id": incident_id, "task_id": task_id, "source": incident.source},
+        )
+        result = run_playbook(incident=incident)
 
         incident.playbook_result = result
         incident.playbook_status = "success" if bool(result.get("success")) else "failed"
         incident.playbook_last_run_at = datetime.now(timezone.utc)
 
+        if isinstance(result.get("report"), dict):
+            report = result["report"]
+            incident.status = str(report.get("status", incident.status)).lower()
+            incident.severity = str(report.get("severity", incident.severity)).lower()
+
         execution.result = result
+        execution.playbook_name = str(result.get("playbook", execution.playbook_name))
         execution.status = incident.playbook_status
         execution.finished_at = datetime.now(timezone.utc)
-        execution.logs = (execution.logs or "") + "\nExecution completed"
+        duration_ms = int((perf_counter() - started_at) * 1000)
+        execution.logs = (execution.logs or "") + f"\nExecution completed in {duration_ms} ms"
 
         db.commit()
         db.refresh(incident)
 
+        logger.info(
+            "Playbook execution finished",
+            extra={
+                "incident_id": incident_id,
+                "task_id": task_id,
+                "playbook_status": incident.playbook_status,
+                "incident_status": incident.status,
+                "execution_duration_ms": duration_ms,
+            },
+        )
+
         return result
     except Exception as exc:
         incident.playbook_status = "failed"
+        incident.status = "failed"
         incident.playbook_last_run_at = datetime.now(timezone.utc)
 
         execution.status = "failed"
         execution.error_message = str(exc)
         execution.finished_at = datetime.now(timezone.utc)
-        execution.logs = (execution.logs or "") + "\nExecution failed"
+        duration_ms = int((perf_counter() - started_at) * 1000)
+        execution.logs = (execution.logs or "") + f"\nExecution failed in {duration_ms} ms"
         execution.result = {
             "incident_id": incident_id,
             "success": False,
             "error": str(exc),
+            "execution_duration_ms": duration_ms,
         }
 
         db.commit()
+
+        logger.exception(
+            "Playbook execution failed",
+            extra={"incident_id": incident_id, "task_id": task_id, "execution_duration_ms": duration_ms},
+        )
 
         return {
             "incident_id": incident_id,
             "success": False,
             "error": str(exc),
+            "execution_duration_ms": duration_ms,
             "trace": traceback.format_exc(limit=5),
         }

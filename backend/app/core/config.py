@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str | None = None
     CELERY_RESULT_BACKEND: str | None = None
 
+    VIRUSTOTAL_API_KEY: str | None = None
+    ABUSEIPDB_API_KEY: str | None = None
+    ALIENVAULT_API_KEY: str | None = None
+    MALWAREBAZAAR_API_KEY: str | None = None
+    SOAR_REPORTS_DIR: str = "./reports"
+    SOAR_DATASET_DIR: str | None = None
+    THREAT_INTEL_TIMEOUT_SECONDS: int = 10
+    THREAT_INTEL_MAX_RETRIES: int = 1
+    THREAT_INTEL_RETRY_BACKOFF_SECONDS: float = 0.5
+
     SQLALCHEMY_DATABASE_URI: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
