@@ -1,10 +1,12 @@
 import { Search, UserCircle2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../app/AuthContext'
 import { useGlobalSearch } from '../../app/SearchContext'
 
 export function Topbar() {
   const navigate = useNavigate()
   const { query, setQuery } = useGlobalSearch()
+  const { user, logout } = useAuth()
 
   const handleSubmit = (event) => {
     event.preventDefault()
@@ -39,10 +41,11 @@ export function Topbar() {
 
         <button
           type="button"
+          onClick={() => logout(true)}
           className="inline-flex items-center gap-2 rounded-lg border border-soc-700 bg-soc-950/80 px-3 py-2 text-sm text-slate-200"
         >
           <UserCircle2 className="h-5 w-5 text-soc-accent" />
-          Analyst
+          {user?.role || 'unknown'}
         </button>
       </div>
     </header>

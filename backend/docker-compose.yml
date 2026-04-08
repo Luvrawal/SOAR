@@ -19,7 +19,16 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: soar_worker
-    command: ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app.celery_app",
+        "worker",
+        "--loglevel=info",
+        "-Q",
+        "playbook_default,playbook_email,playbook_endpoint,playbook_file",
+      ]
     env_file:
       - .env
     depends_on:

@@ -259,9 +259,21 @@ Phase 4 assets are included for deployment-safe operation and handoff:
 
 ```bash
 cd backend
+python scripts/smoke_check_api.py --base-url http://localhost:8000
 python -m pytest
 python scripts/seed_demo_data.py --base-url http://localhost:8000 --count 20
 ```
+
+## ✅ Phase 10 Final Handoff Assets
+
+For production rollout and handoff, use the consolidated docs below:
+
+1. Release notes snapshot
+  - `backend/RELEASE_NOTES_PHASE10.md`
+2. Go-live command matrix
+  - `backend/GO_LIVE_COMMAND_MATRIX.md`
+3. Operational runbook
+  - `backend/RUNBOOK.md`
 
 ---
 

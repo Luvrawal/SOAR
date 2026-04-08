@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_roles
 from app.db.session import get_db
 from app.models.incident import Incident
 from app.models.playbook_execution import PlaybookExecution
 from app.schemas.alert import IncidentResponse
 from app.schemas.common import ApiResponse
 
-router = APIRouter(prefix="/incidents")
+router = APIRouter(prefix="/incidents", dependencies=[Depends(require_roles("admin", "analyst"))])
 
 
 def _risk_label(score: int) -> str:
@@ -19,6 +20,14 @@ def _risk_label(score: int) -> str:
     if score >= 40:
         return "medium"
     return "low"
+
+
+def _risk_confidence(score: int, degraded: bool) -> str:
+    if score >= 80 and not degraded:
+        return "strong"
+    if score >= 45:
+        return "moderate"
+    return "weak"
 
 
 def _timeline(incident: Incident, latest_execution: PlaybookExecution | None) -> list[dict]:
@@ -131,6 +140,9 @@ def get_incident_detail(incident_id: int, db: Session = Depends(get_db)) -> ApiR
         duration_ms = int((latest_execution.finished_at - latest_execution.started_at).total_seconds() * 1000)
 
     risk_score = int(playbook_result.get("risk_score", 0)) if isinstance(playbook_result, dict) else 0
+    execution_steps = []
+    if isinstance(playbook_result, dict) and isinstance(playbook_result.get("execution_steps"), list):
+        execution_steps = playbook_result["execution_steps"]
 
     execution_logs: list[dict] = []
     if latest_execution and latest_execution.logs:
@@ -169,6 +181,7 @@ def get_incident_detail(incident_id: int, db: Session = Depends(get_db)) -> ApiR
             "playbook_execution": {
                 "current_status": incident.playbook_status,
                 "execution_duration_ms": duration_ms,
+                "steps": execution_steps,
                 "logs": execution_logs,
                 "history": serialized_executions,
             },
@@ -180,6 +193,10 @@ def get_incident_detail(incident_id: int, db: Session = Depends(get_db)) -> ApiR
             "risk_scoring": {
                 "score": risk_score,
                 "label": _risk_label(risk_score),
+                "confidence": _risk_confidence(
+                    risk_score,
+                    bool(playbook_result.get("degraded_threat_intel")) if isinstance(playbook_result, dict) else False,
+                ),
             },
             "automated_actions": response_taken,
         },

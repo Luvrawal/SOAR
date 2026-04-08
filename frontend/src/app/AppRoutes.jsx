@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { ProtectedRoute } from '../components/routing/ProtectedRoute'
 import { AppLayout } from '../components/layout/AppLayout'
 import { LoadingState } from '../components/ui/LoadingState'
 
@@ -16,19 +17,74 @@ const SimulationLabPage = lazy(() =>
   import('../pages/SimulationLabPage').then((m) => ({ default: m.SimulationLabPage })),
 )
 const SettingsPage = lazy(() => import('../pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const LoginPage = lazy(() => import('../pages/LoginPage').then((m) => ({ default: m.LoginPage })))
+const UnauthorizedPage = lazy(() =>
+  import('../pages/UnauthorizedPage').then((m) => ({ default: m.UnauthorizedPage })),
+)
 
 export function AppRoutes() {
   return (
     <Suspense fallback={<LoadingState label="Loading SOC module..." />}>
       <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/unauthorized" element={<UnauthorizedPage />} />
         <Route element={<AppLayout />}>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/incidents" element={<IncidentsPage />} />
-          <Route path="/incidents/:incidentId" element={<IncidentDetailPage />} />
-          <Route path="/playbooks" element={<PlaybooksPage />} />
-          <Route path="/threat-intelligence" element={<ThreatIntelPage />} />
-          <Route path="/simulation-lab" element={<SimulationLabPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'analyst']}>
+                <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/incidents"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'analyst']}>
+                <IncidentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/incidents/:incidentId"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'analyst']}>
+                <IncidentDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/playbooks"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <PlaybooksPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/threat-intelligence"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'analyst']}>
+                <ThreatIntelPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/simulation-lab"
+            element={
+              <ProtectedRoute allowedRoles={['admin', 'analyst']}>
+                <SimulationLabPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -80,6 +80,19 @@ export function IncidentDetailPage() {
               <StatusBadge status={execution.current_status} />
               <span className="text-sm text-slate-400">Duration: {execution.execution_duration_ms ?? 'n/a'} ms</span>
             </div>
+            {(execution.steps || []).length ? (
+              <div className="space-y-2 rounded-md border border-soc-700 bg-soc-950/50 p-3">
+                {(execution.steps || []).map((step) => (
+                  <div key={step.id} className="flex items-center justify-between gap-2 rounded-md border border-soc-800 bg-soc-900/60 px-3 py-2 text-xs">
+                    <div>
+                      <p className="font-semibold text-cyan-200">{step.name}</p>
+                      <p className="text-slate-500">{step.timestamp ? new Date(step.timestamp).toLocaleString() : 'pending'}</p>
+                    </div>
+                    <StatusBadge status={step.status} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="max-h-72 space-y-2 overflow-auto rounded-md border border-soc-700 bg-black/40 p-3 font-mono text-xs">
               {(execution.logs || []).map((log, index) => (
                 <div key={`${log.step}-${index}`} className="border-b border-soc-800 pb-2">
@@ -110,6 +123,7 @@ export function IncidentDetailPage() {
           <div className="mb-4">
             <p className="font-display text-3xl text-cyan-100">{risk.score ?? 0}/100</p>
             <p className="text-sm uppercase tracking-wider text-slate-400">{risk.label || 'low'} risk</p>
+            <p className="text-xs uppercase tracking-wider text-slate-500">confidence: {risk.confidence || 'weak'}</p>
           </div>
           <ul className="space-y-2">
             {(detail?.automated_actions || []).map((action, index) => (

@@ -22,6 +22,17 @@ function inferIndicatorType(value) {
   return 'domain'
 }
 
+
+function riskColorClasses(severity) {
+  if (severity === 'high') {
+    return 'border-red-500/50 bg-red-500/15 text-red-100'
+  }
+  if (severity === 'medium') {
+    return 'border-amber-500/50 bg-amber-500/15 text-amber-100'
+  }
+  return 'border-emerald-500/50 bg-emerald-500/15 text-emerald-100'
+}
+
 export function ThreatIntelPage() {
   const { query } = useGlobalSearch()
   const [indicator, setIndicator] = useState('')
@@ -59,6 +70,7 @@ export function ThreatIntelPage() {
           indicator: payload.indicator,
           indicatorType: payload.indicator_type,
           label: payload.risk_summary.label,
+          confidence: payload.risk_summary.confidence,
           score: payload.risk_summary.score,
           timestamp: new Date().toISOString(),
         },
@@ -129,6 +141,12 @@ export function ThreatIntelPage() {
       {result ? (
         <Panel title="Intelligence Results" subtitle={`Risk: ${result.risk_summary.label.toUpperCase()} (${result.risk_summary.score}/100)`}>
           <div className="mb-3 grid gap-3 md:grid-cols-3">
+            <div className={`rounded-md border p-3 text-sm ${riskColorClasses(result.risk_summary.severity)}`}>
+              Threat score: {result.risk_summary.score}/100 ({result.risk_summary.severity})
+            </div>
+            <div className="rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-300">
+              Confidence: {result.risk_summary.confidence}
+            </div>
             <div className="rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-300">
               Degraded mode: {result.risk_summary.degraded ? 'Yes' : 'No'}
             </div>
@@ -138,6 +156,15 @@ export function ThreatIntelPage() {
             <div className="rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-300">
               Type: {result.indicator_type}
             </div>
+          </div>
+
+          <div className="mb-4 rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-200">
+            <p className="font-semibold text-cyan-100">Scoring factors</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-300">
+              {(result.risk_summary.factors || []).map((factor, index) => (
+                <li key={`${factor}-${index}`}>{factor}</li>
+              ))}
+            </ul>
           </div>
 
           <div className="mb-4 grid gap-3 md:grid-cols-2">
@@ -172,7 +199,7 @@ export function ThreatIntelPage() {
               <div key={`${item.indicator}-${item.timestamp}-${index}`} className="rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-300">
                 <p className="font-semibold text-cyan-100">{item.indicator}</p>
                 <p className="mt-1 text-xs text-slate-400">{item.indicatorType} | {new Date(item.timestamp).toLocaleTimeString()}</p>
-                <p className="mt-1">Risk: {item.label.toUpperCase()} ({item.score}/100)</p>
+                <p className="mt-1">Risk: {item.label.toUpperCase()} ({item.score}/100) | Confidence: {item.confidence}</p>
               </div>
             ))}
           </div>

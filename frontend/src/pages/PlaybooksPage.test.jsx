@@ -32,6 +32,43 @@ describe('PlaybooksPage', () => {
         }
       }
 
+      if (url === '/playbooks/phishing-detection/executions') {
+        return {
+          data: {
+            data: {
+              playbook_id: 'phishing-detection',
+              total: 2,
+              items: [
+                {
+                  id: 11,
+                  status: 'failed',
+                  execution_duration_ms: 120,
+                  execution_steps: [{ id: 'receive_alert', name: 'Receive alert', status: 'completed' }],
+                },
+                {
+                  id: 12,
+                  status: 'success',
+                  execution_duration_ms: 90,
+                  execution_steps: [{ id: 'receive_alert', name: 'Receive alert', status: 'completed' }],
+                },
+              ],
+              latest_failed: {
+                id: 11,
+                status: 'failed',
+                execution_duration_ms: 120,
+                execution_steps: [{ id: 'receive_alert', name: 'Receive alert', status: 'completed' }],
+              },
+              latest_success: {
+                id: 12,
+                status: 'success',
+                execution_duration_ms: 90,
+                execution_steps: [{ id: 'receive_alert', name: 'Receive alert', status: 'completed' }],
+              },
+            },
+          },
+        }
+      }
+
       return {
         data: {
           data: {
@@ -56,5 +93,6 @@ describe('PlaybooksPage', () => {
 
     expect(screen.getByText('Total Runs')).toBeInTheDocument()
     expect(screen.getByText('Failed Executions')).toBeInTheDocument()
+    expect(screen.getByText('Execution Comparison')).toBeInTheDocument()
   })
 })

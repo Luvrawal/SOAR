@@ -41,6 +41,29 @@ def client(db_session_factory) -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as test_client:
+        register_response = test_client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "admin@soar.local",
+                "password": "ChangeMe123!",
+                "full_name": "Test Admin",
+                "role": "admin",
+            },
+        )
+        assert register_response.status_code == 201
+
+        login_response = test_client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "admin@soar.local",
+                "password": "ChangeMe123!",
+            },
+        )
+        assert login_response.status_code == 200
+
+        access_token = login_response.json()["data"]["access_token"]
+        test_client.headers.update({"Authorization": f"Bearer {access_token}"})
+
         yield test_client
 
     app.dependency_overrides.clear()

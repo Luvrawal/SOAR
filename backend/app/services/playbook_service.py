@@ -12,6 +12,48 @@ from app.soar.main import run_playbook as run_soar_playbook
 logger = logging.getLogger(__name__)
 
 
+PHASE7_EXECUTION_STEPS = [
+    {"id": "receive_alert", "name": "Receive alert"},
+    {"id": "enrich", "name": "Enrich indicators"},
+    {"id": "risk_score", "name": "Calculate risk"},
+    {"id": "respond", "name": "Execute response"},
+    {"id": "report", "name": "Generate report"},
+]
+
+
+def _step_states(status: str, started_at: datetime | None = None, finished_at: datetime | None = None, error: str | None = None) -> list[dict[str, str | None]]:
+    normalized = status.lower()
+    start_iso = started_at.isoformat() if started_at else None
+    finish_iso = finished_at.isoformat() if finished_at else None
+    steps: list[dict[str, str | None]] = []
+
+    for index, template in enumerate(PHASE7_EXECUTION_STEPS):
+        if normalized == "running":
+            step_status = "completed" if index == 0 else ("running" if index == 1 else "pending")
+            timestamp = start_iso if index <= 1 else None
+        elif normalized == "success":
+            step_status = "completed"
+            timestamp = finish_iso if index == len(PHASE7_EXECUTION_STEPS) - 1 else start_iso
+        elif normalized == "failed":
+            step_status = "failed" if index == len(PHASE7_EXECUTION_STEPS) - 1 else "completed"
+            timestamp = finish_iso if step_status == "failed" else start_iso
+        else:
+            step_status = "pending"
+            timestamp = None
+
+        steps.append(
+            {
+                "id": template["id"],
+                "name": template["name"],
+                "status": step_status,
+                "timestamp": timestamp,
+                "detail": error if step_status == "failed" else None,
+            }
+        )
+
+    return steps
+
+
 def _build_playbook_alert(incident: Incident) -> dict[str, str | dict | None]:
     raw_alert = incident.raw_alert or {}
 
@@ -87,6 +129,7 @@ def execute_playbook_for_incident(
         playbook_name="default_triage",
         status="running",
         logs="Execution started",
+        result={"execution_steps": _step_states(status="running", started_at=datetime.now(timezone.utc))},
     )
     db.add(execution)
 
@@ -100,10 +143,12 @@ def execute_playbook_for_incident(
             extra={"incident_id": incident_id, "task_id": task_id, "source": incident.source},
         )
         result = run_playbook(incident=incident)
+        finished_at = datetime.now(timezone.utc)
+        result["execution_steps"] = _step_states(status="success", started_at=execution.started_at, finished_at=finished_at)
 
         incident.playbook_result = result
         incident.playbook_status = "success" if bool(result.get("success")) else "failed"
-        incident.playbook_last_run_at = datetime.now(timezone.utc)
+        incident.playbook_last_run_at = finished_at
 
         if isinstance(result.get("report"), dict):
             report = result["report"]
@@ -113,7 +158,7 @@ def execute_playbook_for_incident(
         execution.result = result
         execution.playbook_name = str(result.get("playbook", execution.playbook_name))
         execution.status = incident.playbook_status
-        execution.finished_at = datetime.now(timezone.utc)
+        execution.finished_at = finished_at
         duration_ms = int((perf_counter() - started_at) * 1000)
         execution.logs = (execution.logs or "") + f"\nExecution completed in {duration_ms} ms"
 
@@ -133,13 +178,14 @@ def execute_playbook_for_incident(
 
         return result
     except Exception as exc:
+        finished_at = datetime.now(timezone.utc)
         incident.playbook_status = "failed"
         incident.status = "failed"
-        incident.playbook_last_run_at = datetime.now(timezone.utc)
+        incident.playbook_last_run_at = finished_at
 
         execution.status = "failed"
         execution.error_message = str(exc)
-        execution.finished_at = datetime.now(timezone.utc)
+        execution.finished_at = finished_at
         duration_ms = int((perf_counter() - started_at) * 1000)
         execution.logs = (execution.logs or "") + f"\nExecution failed in {duration_ms} ms"
         execution.result = {
@@ -147,6 +193,12 @@ def execute_playbook_for_incident(
             "success": False,
             "error": str(exc),
             "execution_duration_ms": duration_ms,
+            "execution_steps": _step_states(
+                status="failed",
+                started_at=execution.started_at,
+                finished_at=finished_at,
+                error=str(exc),
+            ),
         }
 
         db.commit()

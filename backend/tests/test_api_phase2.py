@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from app.services.playbook_service import execute_playbook_for_incident
 
 
@@ -9,9 +11,66 @@ def test_health_endpoint(client):
     response = client.get("/api/v1/health")
 
     assert response.status_code == 200
+    assert "X-Correlation-ID" in response.headers
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
     payload = response.json()
     assert payload["success"] is True
     assert payload["data"]["status"] == "ok"
+
+
+def test_validate_production_safety_rejects_insecure_defaults(monkeypatch):
+    from app.core import config as app_config
+
+    monkeypatch.setattr(app_config.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(app_config.settings, "DEBUG", True)
+    monkeypatch.setattr(app_config.settings, "JWT_SECRET", "change-me-in-production-min-32-chars")
+    monkeypatch.setattr(app_config.settings, "BACKEND_CORS_ORIGINS", "*")
+
+    with pytest.raises(RuntimeError):
+        app_config.validate_production_safety()
+
+
+def test_production_safety_issues_empty_for_safe_production(monkeypatch):
+    from app.core import config as app_config
+
+    monkeypatch.setattr(app_config.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(app_config.settings, "DEBUG", False)
+    monkeypatch.setattr(app_config.settings, "JWT_SECRET", "super-strong-production-secret-0123456789")
+    monkeypatch.setattr(app_config.settings, "BACKEND_CORS_ORIGINS", "https://soc.example.com")
+
+    assert app_config.production_safety_issues(app_config.settings) == []
+
+
+def test_observability_metrics_endpoint(client):
+    # Generate a couple requests so metrics include traffic data.
+    _ = client.get("/api/v1/health")
+    _ = client.get("/api/v1/playbooks")
+
+    response = client.get("/api/v1/observability/metrics")
+    assert response.status_code == 200
+    payload = response.json()["data"]["metrics"]
+    assert "total_requests" in payload
+    assert "avg_latency_ms" in payload
+    assert "requests_by_status" in payload
+    assert "requests_by_route" in payload
+    assert "recent_events" in payload
+    assert isinstance(payload["recent_events"], list)
+    assert payload["recent_events"]
+    assert "correlation_id" in payload["recent_events"][0]
+    assert "recent_trace_events" in payload
+    assert isinstance(payload["recent_trace_events"], list)
+
+
+def test_observability_prometheus_metrics_endpoint(client):
+    _ = client.get("/api/v1/health")
+
+    response = client.get("/api/v1/observability/metrics/prometheus")
+    assert response.status_code == 200
+    assert "soar_requests_total" in response.text
+    assert "soar_request_latency_avg_ms" in response.text
+    assert "soar_requests_by_status_total" in response.text
 
 
 def test_simulation_endpoint_creates_incident_and_returns_201(client, monkeypatch):
@@ -42,6 +101,10 @@ def test_simulation_endpoint_creates_incident_and_returns_201(client, monkeypatc
         def delay(_: int) -> None:
             return None
 
+        @staticmethod
+        def apply_async(args=(), queue=None):
+            return None
+
     monkeypatch.setattr(alert_service, "process_incident", NoopTask())
 
     response = client.post("/api/v1/simulations/brute-force?count=10")
@@ -57,6 +120,8 @@ def test_simulation_endpoint_creates_incident_and_returns_201(client, monkeypatc
     assert len(payload["data"]["incident_ids"]) == 1
     assert payload["data"]["latest_incident_id"] == payload["data"]["incident_ids"][-1]
     assert payload["data"]["incidents"][0]["playbook_status"] == "pending"
+    assert "queue" in payload["data"]
+    assert "backlog" in payload["data"]["queue"]
 
 
 def test_simulation_summary_aggregation(client, monkeypatch):
@@ -104,6 +169,10 @@ def test_simulation_summary_aggregation(client, monkeypatch):
         def delay(_: int) -> None:
             return None
 
+        @staticmethod
+        def apply_async(args=(), queue=None):
+            return None
+
     monkeypatch.setattr(alert_service, "process_incident", NoopTask())
 
     create_response = client.post("/api/v1/simulations/brute-force?count=10")
@@ -121,6 +190,59 @@ def test_simulation_summary_aggregation(client, monkeypatch):
     assert summary["severity_breakdown"]["high"] == 1
     assert summary["playbook_status_breakdown"]["pending"] == 2
     assert summary["incident_status_breakdown"]["open"] == 2
+    assert "queue" in summary
+
+
+def test_simulation_queue_metrics_endpoint(client, monkeypatch):
+    from app.api.v1.endpoints import simulations
+    from app.services import alert_service
+
+    fake_alert = {
+        "alert_type": "BRUTE_FORCE_DETECTED",
+        "severity": "CRITICAL",
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "source": "option2_simulation",
+        "details": {
+            "attacker_ip": "10.10.10.10",
+            "target_ip": "192.168.1.1",
+            "target_port": 22,
+            "failed_attempts": 12,
+            "usernames_tried": ["admin", "root", "user", "test"],
+            "risk_score": 90,
+            "reasons": ["[HIGH] test reason"],
+            "protocol": "SSH",
+        },
+    }
+
+    monkeypatch.setattr(simulations, "sim_bruteforce", lambda num_attempts: ([], [fake_alert]))
+
+    class NoopTask:
+        @staticmethod
+        def delay(_: int) -> None:
+            return None
+
+        @staticmethod
+        def apply_async(args=(), queue=None):
+            return None
+
+    monkeypatch.setattr(alert_service, "process_incident", NoopTask())
+
+    create_response = client.post("/api/v1/simulations/brute-force?count=10")
+    assert create_response.status_code == 201
+
+    queue_response = client.get("/api/v1/simulations/queue-metrics?window_hours=24")
+    assert queue_response.status_code == 200
+    queue_payload = queue_response.json()["data"]["queue"]
+    assert "pending" in queue_payload
+    assert "running" in queue_payload
+    assert "backlog" in queue_payload
+    assert "capacity" in queue_payload
+    assert "pressure" in queue_payload
+    assert "queues" in queue_payload
+    assert "task_max_retries" in queue_payload
+    assert "per_queue" in queue_payload
+    assert "worker_runbook" in queue_payload
+    assert queue_payload["window_hours"] == 24
 
 
 def test_async_processing_transition_persists_playbook_result(client, db_session_factory, monkeypatch):
@@ -221,6 +343,7 @@ def test_incidents_list_and_detail_endpoints(client, db_session_factory, monkeyp
     assert detail_payload["incident"]["id"] == incident_id
     assert len(detail_payload["timeline"]) == 4
     assert "current_status" in detail_payload["playbook_execution"]
+    assert isinstance(detail_payload["playbook_execution"].get("steps"), list)
     assert "risk_scoring" in detail_payload
 
     executions_response = client.get(f"/api/v1/incidents/{incident_id}/executions")
@@ -234,12 +357,32 @@ def test_playbooks_endpoints(client):
     payload = list_response.json()["data"]
     assert payload["total"] == 4
     assert len(payload["items"]) == 4
+    assert "version" in payload["items"][0]
 
     stats_response = client.get("/api/v1/playbooks/brute-force-detection/stats")
     assert stats_response.status_code == 200
     stats = stats_response.json()["data"]
     assert stats["id"] == "brute-force-detection"
     assert "steps" in stats
+    assert "version" in stats
+
+    executions_response = client.get("/api/v1/playbooks/brute-force-detection/executions")
+    assert executions_response.status_code == 200
+    executions = executions_response.json()["data"]
+    assert "items" in executions
+    assert "latest_success" in executions
+    assert "latest_failed" in executions
+
+    filtered_executions_response = client.get(
+        "/api/v1/playbooks/brute-force-detection/executions?status=success&since_hours=24&page=1&page_size=5"
+    )
+    assert filtered_executions_response.status_code == 200
+    filtered_payload = filtered_executions_response.json()["data"]
+    assert filtered_payload["filters"]["status"] == "success"
+    assert filtered_payload["filters"]["since_hours"] == 24
+    assert filtered_payload["filters"]["page"] == 1
+    assert filtered_payload["filters"]["page_size"] == 5
+    assert "total_all" in filtered_payload
 
 
 def test_threat_intel_query_endpoint(client, monkeypatch):

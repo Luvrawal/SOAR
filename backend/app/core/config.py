@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
     BACKEND_CORS_ORIGINS: str = "*"
+    SECURITY_HEADERS_ENABLED: bool = True
+    FORCE_HTTPS_HSTS: bool = False
+
+    JWT_SECRET: str = "change-me-in-production-min-32-chars"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     POSTGRES_HOST: str = "db"
     POSTGRES_PORT: int = 5432
@@ -25,6 +31,14 @@ class Settings(BaseSettings):
 
     CELERY_BROKER_URL: str | None = None
     CELERY_RESULT_BACKEND: str | None = None
+    CELERY_WORKER_CONCURRENCY: int = 4
+    PLAYBOOK_QUEUE_CAPACITY: int = 200
+    CELERY_TASK_MAX_RETRIES: int = 3
+    CELERY_RETRY_BACKOFF_SECONDS: int = 2
+    CELERY_QUEUE_DEFAULT: str = "playbook_default"
+    CELERY_QUEUE_EMAIL: str = "playbook_email"
+    CELERY_QUEUE_ENDPOINT: str = "playbook_endpoint"
+    CELERY_QUEUE_FILE: str = "playbook_file"
 
     VIRUSTOTAL_API_KEY: str | None = None
     ABUSEIPDB_API_KEY: str | None = None
@@ -69,3 +83,25 @@ def build_celery_result_backend() -> str:
 def get_cors_origins() -> list[str]:
     origins = [origin.strip() for origin in settings.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]
     return origins or ["*"]
+
+
+def production_safety_issues(cfg: Settings) -> list[str]:
+    if cfg.ENVIRONMENT != "production":
+        return []
+
+    issues: list[str] = []
+    if cfg.DEBUG:
+        issues.append("DEBUG must be false in production")
+    if cfg.JWT_SECRET == "change-me-in-production-min-32-chars":
+        issues.append("JWT_SECRET must be overridden in production")
+    if cfg.BACKEND_CORS_ORIGINS.strip() == "*":
+        issues.append("BACKEND_CORS_ORIGINS cannot be wildcard (*) in production")
+
+    return issues
+
+
+def validate_production_safety() -> None:
+    issues = production_safety_issues(settings)
+
+    if issues:
+        raise RuntimeError("Production safety checks failed: " + "; ".join(issues))

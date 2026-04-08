@@ -1,0 +1,82 @@
+{
+    "incident_id": "INC-20260408102726",
+    "playbook_name": "Brute Force Detection Playbook",
+    "mitre_technique": "T1110 - Brute Force",
+    "alert_type": "BRUTE_FORCE_DETECTED",
+    "severity": "CRITICAL",
+    "risk_score": 100,
+    "status": "CLOSED",
+    "start_time": "2026-04-08 10:27:26",
+    "end_time": "2026-04-08 10:27:29",
+    "alert_details": {
+        "attacker_ip": "10.10.10.11",
+        "target_ip": "192.168.1.1",
+        "target_port": 22,
+        "failed_attempts": 13,
+        "usernames_tried": [
+            "admin",
+            "root",
+            "user",
+            "test"
+        ],
+        "risk_score": 95,
+        "reasons": [
+            "[HIGH] test reason"
+        ],
+        "protocol": "SSH"
+    },
+    "threat_intel": {
+        "virustotal": {
+            "source": "VirusTotal",
+            "ip": "10.10.10.11",
+            "malicious": 0,
+            "suspicious": 0,
+            "total": 94,
+            "summary": "0/94 engines flagged as malicious"
+        },
+        "abuseipdb": {
+            "source": "AbuseIPDB",
+            "ip": "10.10.10.11",
+            "abuse_score": 0,
+            "total_reports": 0,
+            "country": null,
+            "isp": null,
+            "is_whitelisted": false,
+            "summary": "Abuse confidence: 0% (0 reports)"
+        },
+        "alienvault": {
+            "source": "AlienVault OTX",
+            "error": "status_400",
+            "degraded": true,
+            "transient": false
+        }
+    },
+    "response_taken": [
+        {
+            "action": "BLOCK IP 10.10.10.11 on firewall immediately",
+            "timestamp": "2026-04-08 10:27:29",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Lock all targeted user accounts",
+            "timestamp": "2026-04-08 10:27:29",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Alert SOC team - immediate investigation required",
+            "timestamp": "2026-04-08 10:27:29",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Capture network traffic for forensic analysis",
+            "timestamp": "2026-04-08 10:27:29",
+            "status": "COMPLETED"
+        },
+        {
+            "action": "Escalate to Incident Response team",
+            "timestamp": "2026-04-08 10:27:29",
+            "status": "COMPLETED"
+        }
+    ],
+    "source": "option2_simulation"
+}

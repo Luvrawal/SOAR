@@ -18,7 +18,7 @@ import { Panel } from '../components/ui/Panel'
 import { SeverityBadge } from '../components/ui/SeverityBadge'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { usePolling } from '../hooks/usePolling'
-import { api } from '../lib/api'
+import { api, getLastCorrelationId } from '../lib/api'
 
 function groupByDate(items) {
   const counts = new Map()
@@ -40,25 +40,120 @@ function groupByType(items) {
   return [...counts.entries()].map(([name, value]) => ({ name, value }))
 }
 
+function buildQueueFallback(summaryData, incidents) {
+  const breakdown = summaryData?.playbook_status_breakdown || {}
+  const pendingFromBreakdown = Number(breakdown.pending || 0)
+  const runningFromBreakdown = Number(breakdown.running || 0)
+
+  const pendingFromIncidents = incidents.filter((item) => item.playbook_status === 'pending').length
+  const runningFromIncidents = incidents.filter((item) => item.playbook_status === 'running').length
+
+  const pending = pendingFromBreakdown || pendingFromIncidents
+  const running = runningFromBreakdown || runningFromIncidents
+  const backlog = pending + running
+  const capacity = 200
+  const utilization = capacity > 0 ? Number(((backlog / capacity) * 100).toFixed(2)) : 0
+
+  let pressure = 'low'
+  if (utilization >= 90) {
+    pressure = 'critical'
+  } else if (utilization >= 70) {
+    pressure = 'high'
+  } else if (utilization >= 40) {
+    pressure = 'medium'
+  }
+
+  return {
+    pending,
+    running,
+    backlog,
+    capacity,
+    utilization_pct: utilization,
+    pressure,
+    per_queue: {},
+  }
+}
+
 export function DashboardPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [summary, setSummary] = useState(null)
   const [incidents, setIncidents] = useState([])
+  const [queueMetrics, setQueueMetrics] = useState(null)
+  const [observability, setObservability] = useState(null)
+  const [lastCorrelationId, setLastCorrelationId] = useState('')
+  const [opsNotice, setOpsNotice] = useState('')
+  const [endpointStatus, setEndpointStatus] = useState({
+    summary: 'pending',
+    queueMetrics: 'pending',
+    observability: 'pending',
+  })
   const [runningSimulation, setRunningSimulation] = useState('')
   const [lastRefreshedAt, setLastRefreshedAt] = useState(null)
 
   const fetchDashboardData = useCallback(async () => {
     setError('')
     try {
-      const [summaryRes, incidentsRes] = await Promise.all([
+      const [summaryRes, incidentsRes, observabilityRes, queueMetricsRes] = await Promise.allSettled([
         api.get('/simulations/summary', { params: { limit: 50 } }),
         api.get('/incidents', { params: { page: 1, page_size: 50 } }),
+        api.get('/observability/metrics'),
+        api.get('/simulations/queue-metrics', { params: { window_hours: 24 } }),
       ])
 
-      setSummary(summaryRes.data.data)
-      setIncidents(incidentsRes.data.data.items || [])
+      if (summaryRes.status !== 'fulfilled') {
+        throw summaryRes.reason
+      }
+      if (incidentsRes.status !== 'fulfilled') {
+        throw incidentsRes.reason
+      }
+
+      const summaryData = summaryRes.value.data.data
+      setSummary(summaryData)
+      const incidentItems = incidentsRes.value.data.data.items || []
+      setIncidents(incidentItems)
+
+      setEndpointStatus({
+        summary: summaryRes.status,
+        queueMetrics: queueMetricsRes.status,
+        observability: observabilityRes.status,
+      })
+
+      const notices = []
+
+      let resolvedQueueMetrics = summaryData?.queue || null
+      if (!resolvedQueueMetrics && queueMetricsRes.status === 'fulfilled') {
+        resolvedQueueMetrics = queueMetricsRes.value?.data?.data?.queue || null
+      }
+
+      if (!resolvedQueueMetrics) {
+        resolvedQueueMetrics = buildQueueFallback(summaryData, incidentItems)
+        notices.push('Queue metrics fallback is derived from summary and incident status data.')
+      }
+
+      if (!resolvedQueueMetrics) {
+        notices.push('Queue metrics are temporarily unavailable.')
+      }
+
+      setQueueMetrics(resolvedQueueMetrics)
+
+      if (observabilityRes.status === 'fulfilled') {
+        setObservability(observabilityRes.value.data?.data?.metrics || null)
+      } else {
+        setObservability(null)
+        const reason = String(observabilityRes.reason?.message || '')
+        if (reason.includes('403') || reason.toLowerCase().includes('permission')) {
+          notices.push('Detailed platform observability metrics are available to admin role.')
+        } else {
+          notices.push('Observability metrics are temporarily unavailable.')
+        }
+      }
+
+      setOpsNotice(notices.join(' '))
+
+      setLastCorrelationId(getLastCorrelationId() || '')
+
       setLastRefreshedAt(new Date().toISOString())
     } catch (err) {
       setError(err.message)
@@ -220,6 +315,117 @@ export function DashboardPage() {
           </div>
         </Panel>
       </section>
+
+      <Panel title="Platform Operations" subtitle="Queue pressure and API runtime telemetry">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-300">
+            <p className="text-xs uppercase tracking-wider text-slate-500">Queue Backlog</p>
+            <p className="mt-1 font-display text-2xl text-cyan-100">{queueMetrics?.backlog ?? 'n/a'}</p>
+            <p className="text-xs text-slate-400">Capacity: {queueMetrics?.capacity ?? 'n/a'}</p>
+          </div>
+          <div className="rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-300">
+            <p className="text-xs uppercase tracking-wider text-slate-500">Queue Pressure</p>
+            <p className="mt-1 font-display text-2xl text-cyan-100">{queueMetrics?.pressure || 'n/a'}</p>
+            <p className="text-xs text-slate-400">Utilization: {queueMetrics?.utilization_pct ?? 'n/a'}%</p>
+          </div>
+          <div className="rounded-md border border-soc-700 bg-soc-950/50 p-3 text-sm text-slate-300">
+            <p className="text-xs uppercase tracking-wider text-slate-500">API Error Rate</p>
+            <p className="mt-1 font-display text-2xl text-cyan-100">{observability?.error_rate_pct ?? 'n/a'}%</p>
+            <p className="text-xs text-slate-400">Avg latency: {observability?.avg_latency_ms ?? 'n/a'} ms</p>
+          </div>
+        </div>
+
+        {opsNotice ? <p className="mt-3 text-xs text-slate-500">{opsNotice}</p> : null}
+
+        <p className="mt-2 text-xs text-slate-500">
+          Endpoint status: summary={endpointStatus.summary}, queue-metrics={endpointStatus.queueMetrics}, observability={endpointStatus.observability}
+        </p>
+
+        <p className="mt-2 text-xs text-slate-500">
+          Last correlation ID: {lastCorrelationId || 'n/a'}
+        </p>
+
+        {queueMetrics?.per_queue ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-soc-700 text-slate-400">
+                  <th className="px-2 py-2">Queue</th>
+                  <th className="px-2 py-2">Total</th>
+                  <th className="px-2 py-2">Failed</th>
+                  <th className="px-2 py-2">Throughput/hr</th>
+                  <th className="px-2 py-2">Failure Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(queueMetrics.per_queue).map(([queueName, queueData]) => (
+                  <tr key={`queue-${queueName}`} className="border-b border-soc-800">
+                    <td className="px-2 py-2 text-slate-200">{queueName}</td>
+                    <td className="px-2 py-2 text-slate-300">{queueData.total}</td>
+                    <td className="px-2 py-2 text-slate-300">{queueData.failed}</td>
+                    <td className="px-2 py-2 text-slate-300">{queueData.throughput_per_hour}</td>
+                    <td className="px-2 py-2 text-slate-300">{queueData.failure_rate_pct}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {observability?.recent_events?.length ? (
+          <div className="mt-4 overflow-x-auto">
+            <p className="mb-2 text-xs uppercase tracking-wider text-slate-500">Recent API Events</p>
+            <table className="min-w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-soc-700 text-slate-400">
+                  <th className="px-2 py-2">Time</th>
+                  <th className="px-2 py-2">Route</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2">Latency</th>
+                  <th className="px-2 py-2">Correlation ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {observability.recent_events.slice(0, 8).map((event, index) => (
+                  <tr key={`obs-event-${event.timestamp}-${index}`} className="border-b border-soc-800">
+                    <td className="px-2 py-2 text-slate-300">{new Date(event.timestamp).toLocaleTimeString()}</td>
+                    <td className="px-2 py-2 text-slate-200">{event.method} {event.route}</td>
+                    <td className="px-2 py-2 text-slate-300">{event.status_code}</td>
+                    <td className="px-2 py-2 text-slate-300">{event.latency_ms} ms</td>
+                    <td className="px-2 py-2 font-mono text-[11px] text-slate-400">{event.correlation_id || 'n/a'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {observability?.recent_trace_events?.length ? (
+          <div className="mt-4 overflow-x-auto">
+            <p className="mb-2 text-xs uppercase tracking-wider text-slate-500">Recent Queue and Task Events</p>
+            <table className="min-w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-soc-700 text-slate-400">
+                  <th className="px-2 py-2">Time</th>
+                  <th className="px-2 py-2">Stage</th>
+                  <th className="px-2 py-2">Message</th>
+                  <th className="px-2 py-2">Correlation ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {observability.recent_trace_events.slice(0, 8).map((event, index) => (
+                  <tr key={`trace-event-${event.timestamp}-${index}`} className="border-b border-soc-800">
+                    <td className="px-2 py-2 text-slate-300">{new Date(event.timestamp).toLocaleTimeString()}</td>
+                    <td className="px-2 py-2 text-cyan-200">{event.stage}</td>
+                    <td className="px-2 py-2 text-slate-300">{event.message}</td>
+                    <td className="px-2 py-2 font-mono text-[11px] text-slate-400">{event.correlation_id || 'n/a'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </Panel>
     </div>
   )
 }

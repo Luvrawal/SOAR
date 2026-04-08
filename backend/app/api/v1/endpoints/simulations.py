@@ -4,17 +4,18 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_roles
 from app.db.session import get_db
 from app.models.incident import Incident
 from app.schemas.alert import AlertCreate, IncidentResponse
 from app.schemas.common import ApiResponse
-from app.services.alert_service import create_incident_from_alert
+from app.services.alert_service import create_incident_from_alert, get_queue_metrics
 from app.soar.option2_simulation.simulate_bruteforce import simulate as sim_bruteforce
 from app.soar.option2_simulation.simulate_malware import simulate as sim_malware
 from app.soar.option2_simulation.simulate_network_anomaly import simulate as sim_network_anomaly
 from app.soar.option2_simulation.simulate_phishing import simulate as sim_phishing
 
-router = APIRouter(prefix="/simulations")
+router = APIRouter(prefix="/simulations", dependencies=[Depends(require_roles("admin", "analyst"))])
 
 SimulationType = Literal["brute-force", "phishing", "malware", "network-anomaly", "all"]
 CONTRACT_VERSION = "v1"
@@ -88,6 +89,8 @@ def run_simulation(
         incident_ids.append(incident.id)
         incidents.append(IncidentResponse.model_validate(incident).model_dump(mode="json"))
 
+    queue_snapshot = get_queue_metrics(db)
+
     return ApiResponse(
         message="Simulation executed and incidents queued for playbook processing",
         data={
@@ -101,6 +104,7 @@ def run_simulation(
             "incident_ids": incident_ids,
             "latest_incident_id": incident_ids[-1] if incident_ids else None,
             "incidents": incidents,
+            "queue": queue_snapshot,
         },
     )
 
@@ -147,6 +151,8 @@ def simulation_summary(
         IncidentResponse.model_validate(incident).model_dump(mode="json") for incident in recent_incidents
     ]
 
+    queue_snapshot = get_queue_metrics(db)
+
     return ApiResponse(
         message="Simulation incident summary fetched successfully",
         data={
@@ -160,5 +166,17 @@ def simulation_summary(
             "incident_status_breakdown": incident_status_breakdown,
             "recent_count": len(serialized_recent),
             "recent_incidents": serialized_recent,
+            "queue": queue_snapshot,
         },
+    )
+
+
+@router.get("/queue-metrics", response_model=ApiResponse)
+def simulation_queue_metrics(
+    db: Session = Depends(get_db),
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+) -> ApiResponse:
+    return ApiResponse(
+        message="Simulation queue metrics fetched successfully",
+        data={"queue": get_queue_metrics(db, window_hours=window_hours)},
     )

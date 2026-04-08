@@ -13,3 +13,4 @@ colorama
 fpdf2
 pytest
 httpx
+PyJWT

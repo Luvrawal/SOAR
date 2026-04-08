@@ -11,20 +11,26 @@ import {
   Shield,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { useAuth } from '../../app/AuthContext'
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: Gauge },
-  { to: '/incidents', label: 'Incidents', icon: AlertTriangle },
-  { to: '/playbooks', label: 'Playbooks', icon: Bot },
-  { to: '/threat-intelligence', label: 'Threat Intelligence', icon: Shield },
-  { to: '/simulation-lab', label: 'Simulation Lab', icon: Beaker },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/', label: 'Dashboard', icon: Gauge, roles: ['admin', 'analyst'] },
+  { to: '/incidents', label: 'Incidents', icon: AlertTriangle, roles: ['admin', 'analyst'] },
+  { to: '/playbooks', label: 'Playbooks', icon: Bot, roles: ['admin'] },
+  { to: '/threat-intelligence', label: 'Threat Intelligence', icon: Shield, roles: ['admin', 'analyst'] },
+  { to: '/simulation-lab', label: 'Simulation Lab', icon: Beaker, roles: ['admin', 'analyst'] },
+  { to: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
 ]
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const { user } = useAuth()
 
   const widthClass = useMemo(() => (collapsed ? 'w-[82px]' : 'w-[250px]'), [collapsed])
+  const visibleNavItems = useMemo(() => {
+    const role = user?.role
+    return navItems.filter((item) => !role || item.roles.includes(role))
+  }, [user])
 
   return (
     <aside className={clsx('relative hidden border-r border-soc-700/60 bg-soc-900/85 md:flex md:flex-col', widthClass)}>
@@ -44,7 +50,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon
           return (
             <NavLink
