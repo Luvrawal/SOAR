@@ -34,6 +34,10 @@ Expected services:
   - `python -m pytest -q`
 4. Verify smoke checks on running stack:
   - `python scripts/smoke_check_api.py --base-url http://localhost:8000`
+  - For authenticated protected-route verification (recommended secure form):
+    - PowerShell: `$env:SOAR_SMOKE_AUTH_PASSWORD='your_password'; python scripts/smoke_check_api.py --base-url http://localhost:8000 --auth-mode required --auth-email <admin_email> --auth-password-env SOAR_SMOKE_AUTH_PASSWORD`
+  - Optional interactive password prompt:
+    - `python scripts/smoke_check_api.py --base-url http://localhost:8000 --auth-mode required --auth-email <admin_email> --prompt-auth-password`
 5. Verify observability endpoints:
   - `curl "http://localhost:8000/api/v1/observability/metrics"`
   - `curl "http://localhost:8000/api/v1/observability/metrics/prometheus"`
@@ -41,6 +45,11 @@ Expected services:
 ## Health Validation
 1. Automated smoke check (recommended first):
   - `python scripts/smoke_check_api.py --base-url http://localhost:8000`
+  - Notes:
+    - Default mode is non-mutating and does not create users.
+    - Without auth, protected endpoints are validated as `401`.
+    - Use `--auth-mode required` with credentials to assert protected endpoints return `200`.
+    - Bootstrap user creation is disabled by default and must be explicitly opted in with `--allow-bootstrap-create`.
 2. API health:
   - `curl http://localhost:8000/api/v1/health`
 3. Simulation smoke check:
