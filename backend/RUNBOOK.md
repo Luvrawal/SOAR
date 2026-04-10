@@ -34,6 +34,8 @@ Expected services:
   - `python -m pytest -q`
 4. Verify smoke checks on running stack:
   - `python scripts/smoke_check_api.py --base-url http://localhost:8000`
+  - For authenticated protected-route verification:
+    - `python scripts/smoke_check_api.py --base-url http://localhost:8000 --auth-mode required --auth-email <admin_email> --auth-password <admin_password>`
 5. Verify observability endpoints:
   - `curl "http://localhost:8000/api/v1/observability/metrics"`
   - `curl "http://localhost:8000/api/v1/observability/metrics/prometheus"`
@@ -41,6 +43,9 @@ Expected services:
 ## Health Validation
 1. Automated smoke check (recommended first):
   - `python scripts/smoke_check_api.py --base-url http://localhost:8000`
+  - Notes:
+    - Default mode (`--auth-mode auto`) verifies public endpoints and validates protected endpoints as `401` when credentials are unavailable.
+    - Use `--auth-mode required` with admin credentials to assert protected endpoints return `200`.
 2. API health:
   - `curl http://localhost:8000/api/v1/health`
 3. Simulation smoke check:
