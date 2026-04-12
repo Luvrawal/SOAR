@@ -4,7 +4,11 @@ import { LoadingState } from '../components/ui/LoadingState'
 import { Panel } from '../components/ui/Panel'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { usePolling } from '../hooks/usePolling'
-import { api } from '../lib/api'
+import {
+  fetchPlaybookExecutions as fetchPlaybookExecutionsService,
+  fetchPlaybookStats as fetchPlaybookStatsService,
+  fetchPlaybooks as fetchPlaybooksService,
+} from '../lib/services/socService'
 
 export function PlaybooksPage() {
   const [loading, setLoading] = useState(true)
@@ -20,8 +24,7 @@ export function PlaybooksPage() {
 
   const fetchPlaybooks = useCallback(async () => {
     try {
-      const response = await api.get('/playbooks')
-      const items = response.data.data.items || []
+      const items = await fetchPlaybooksService()
       setPlaybooks(items)
       if (!activePlaybookId && items.length > 0) {
         setActivePlaybookId(items[0].id)
@@ -39,8 +42,8 @@ export function PlaybooksPage() {
       return
     }
     try {
-      const response = await api.get(`/playbooks/${activePlaybookId}/stats`)
-      setActiveStats(response.data.data)
+      const stats = await fetchPlaybookStatsService(activePlaybookId)
+      setActiveStats(stats)
       setError('')
     } catch (err) {
       setError(err.message)
@@ -53,15 +56,13 @@ export function PlaybooksPage() {
     }
     try {
       const sinceHours = historyWindow === '24h' ? 24 : historyWindow === '7d' ? 7 * 24 : undefined
-      const response = await api.get(`/playbooks/${activePlaybookId}/executions`, {
-        params: {
-          ...(historyStatusFilter !== 'all' ? { status: historyStatusFilter } : {}),
-          ...(sinceHours ? { since_hours: sinceHours } : {}),
-          page: historyPage,
-          page_size: historyPageSize,
-        },
+      const executions = await fetchPlaybookExecutionsService(activePlaybookId, {
+        status: historyStatusFilter,
+        sinceHours,
+        page: historyPage,
+        pageSize: historyPageSize,
       })
-      setActiveExecutions(response.data.data)
+      setActiveExecutions(executions)
       setError('')
     } catch (err) {
       setError(err.message)

@@ -411,3 +411,104 @@ def test_threat_intel_query_endpoint(client, monkeypatch):
     assert payload["indicator_type"] == "ip"
     assert "risk_summary" in payload
     assert payload["risk_summary"]["label"] in {"low", "medium", "high"}
+
+
+def _login_access_token(client, email: str, password: str) -> str:
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login_response.status_code == 200
+    return login_response.json()["data"]["access_token"]
+
+
+def _ensure_analyst_user(client) -> tuple[str, str]:
+    email = "analyst@soar.local"
+    password = "AnalystPass123!"
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+            "full_name": "Test Analyst",
+            "role": "analyst",
+        },
+    )
+    assert register_response.status_code in (201, 409)
+    return email, password
+
+
+@pytest.mark.parametrize(
+    "path,role,expected_status",
+    [
+        ("/api/v1/incidents?page=1&page_size=1", "anonymous", 401),
+        ("/api/v1/incidents?page=1&page_size=1", "analyst", 200),
+        ("/api/v1/incidents?page=1&page_size=1", "admin", 200),
+        ("/api/v1/simulations/summary?limit=1", "anonymous", 401),
+        ("/api/v1/simulations/summary?limit=1", "analyst", 200),
+        ("/api/v1/simulations/summary?limit=1", "admin", 200),
+        ("/api/v1/playbooks", "anonymous", 401),
+        ("/api/v1/playbooks", "analyst", 403),
+        ("/api/v1/playbooks", "admin", 200),
+        ("/api/v1/observability/metrics", "anonymous", 401),
+        ("/api/v1/observability/metrics", "analyst", 403),
+        ("/api/v1/observability/metrics", "admin", 200),
+    ],
+)
+def test_rbac_negative_path_matrix(client, path: str, role: str, expected_status: int):
+    analyst_email, analyst_password = _ensure_analyst_user(client)
+    analyst_token = _login_access_token(client, analyst_email, analyst_password)
+    admin_token = _login_access_token(client, "admin@soar.local", "ChangeMe123!")
+
+    if role == "admin":
+        response = client.get(path, headers={"Authorization": f"Bearer {admin_token}"})
+    elif role == "analyst":
+        response = client.get(path, headers={"Authorization": f"Bearer {analyst_token}"})
+    else:
+        original_auth = client.headers.pop("Authorization", None)
+        try:
+            response = client.get(path)
+        finally:
+            if original_auth is not None:
+                client.headers["Authorization"] = original_auth
+
+    assert response.status_code == expected_status
+
+
+def test_simulation_queue_failure_injection_keeps_api_available(client, monkeypatch):
+    from app.api.v1.endpoints import simulations
+    from app.services import alert_service
+
+    fake_alert = {
+        "alert_type": "BRUTE_FORCE_DETECTED",
+        "severity": "CRITICAL",
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "source": "option2_simulation",
+        "details": {
+            "attacker_ip": "10.10.10.99",
+            "target_ip": "192.168.1.99",
+            "target_port": 22,
+            "failed_attempts": 18,
+            "usernames_tried": ["admin", "root"],
+            "risk_score": 99,
+            "reasons": ["[HIGH] queue failure injection test"],
+            "protocol": "SSH",
+        },
+    }
+
+    monkeypatch.setattr(simulations, "sim_bruteforce", lambda num_attempts: ([], [fake_alert]))
+
+    class FailingTask:
+        @staticmethod
+        def apply_async(*args, **kwargs):
+            raise RuntimeError("injected queue failure")
+
+    monkeypatch.setattr(alert_service, "process_incident", FailingTask())
+
+    response = client.post("/api/v1/simulations/brute-force?count=10")
+    assert response.status_code == 201
+
+    payload = response.json()["data"]
+    assert payload["incidents_created"] == 1
+    assert payload["latest_incident_id"] is not None
+    assert payload["incidents"][0]["playbook_status"] == "pending"

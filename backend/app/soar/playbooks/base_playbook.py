@@ -4,10 +4,15 @@
 
 import os
 import json
+import logging
 from datetime import datetime
 from dotenv import load_dotenv
 
+from app.soar.utils.reporter import apply_report_profile
+
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class BasePlaybook:
     """
@@ -178,16 +183,27 @@ class BasePlaybook:
             "source"         : self.alert.get('source', 'Unknown')
         }
 
-        # Save report as JSON
+        # Save report as JSON using configured report profile.
+        profiled_report = apply_report_profile(report)
+
         report_dir = os.getenv("SOAR_REPORTS_DIR", os.path.join(os.getcwd(), "reports"))
         os.makedirs(report_dir, exist_ok=True)
         report_path = f"{report_dir}/{self.incident_id}.json"
 
         with open(report_path, 'w') as f:
-            json.dump(report, f, indent=4)
+            json.dump(profiled_report, f, indent=4)
+
+        logger.info(
+            "artifact_json_created",
+            extra={
+                "incident_id": self.incident_id,
+                "report_path": report_path,
+                "report_profile": profiled_report.get("report_profile", "full"),
+            },
+        )
 
         print(f"\n  [*] Report saved: {report_path}")
-        return report
+        return profiled_report
 
     # ─────────────────────────────────────────────
     # MAIN RUN METHOD

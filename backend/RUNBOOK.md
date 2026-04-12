@@ -7,9 +7,14 @@ Operational guide for running, validating, and rolling back the SOAR backend sta
 - Release notes snapshot: `RELEASE_NOTES_PHASE10.md`
 - Environment-specific rollout commands: `GO_LIVE_COMMAND_MATRIX.md`
 
+## Documentation Drift Control
+Run alignment check before releases to ensure critical commands stay synchronized:
+- `python scripts/check_docs_alignment.py --runbook-path RUNBOOK.md --matrix-path GO_LIVE_COMMAND_MATRIX.md`
+
 ## Prerequisites
 - Docker and Docker Compose
 - Backend env file at `backend/.env`
+- Report profile mode (`SOAR_REPORT_PROFILE`) set to either `full` or `redacted` as required by sharing policy
 
 ## Start Stack
 1. `cd backend`
@@ -32,6 +37,9 @@ Expected services:
   - `python scripts/production_preflight.py --env-file .env.production`
 3. Verify test baseline:
   - `python -m pytest -q`
+  - Optional redacted profile check:
+    - PowerShell: `$env:SOAR_REPORT_PROFILE='redacted'`
+    - Run simulation/smoke workflows and confirm generated reports contain `"report_profile": "redacted"`
 4. Verify smoke checks on running stack:
   - `python scripts/smoke_check_api.py --base-url http://localhost:8000`
   - For authenticated protected-route verification (recommended secure form):
@@ -62,6 +70,30 @@ Expected services:
   - `curl "http://localhost:8000/api/v1/observability/metrics"`
 7. Prometheus metrics export (admin):
   - `curl "http://localhost:8000/api/v1/observability/metrics/prometheus"`
+
+## Report Artifact Retention
+Use cleanup utility to enforce retention for generated report artifacts (`INC-*.json`, `INC-*.pdf`):
+1. Dry-run candidate discovery (no deletion):
+  - `python scripts/cleanup_reports.py --reports-dir ./reports --retention-days 30 --dry-run --json-audit-log -`
+2. Apply cleanup (deletes expired files):
+  - `python scripts/cleanup_reports.py --reports-dir ./reports --retention-days 30 --apply --json-audit-log ./reports/cleanup-audit.json`
+
+Notes:
+- Default mode is dry-run when `--apply` is not provided.
+- Use environment-specific retention windows (dev=7, staging=14, production=30 by policy).
+- Keep generated audit logs with deployment records.
+
+## DB Payload Retention
+Use cleanup utility to prune aged sensitive payloads in `incidents.playbook_result` and `playbook_executions.result`:
+1. Dry-run candidate discovery:
+  - `python scripts/cleanup_db_payloads.py --retention-days 30 --dry-run --json-audit-log -`
+2. Apply pruning:
+  - `python scripts/cleanup_db_payloads.py --retention-days 30 --apply --json-audit-log ./reports/db-payload-cleanup-audit.json`
+
+Notes:
+- Default status filter is `closed,failed` (override with `--statuses`).
+- Pruning keeps minimal metadata and removes full payload details from aged records.
+- Run artifact cleanup and DB payload cleanup together to keep retention parity.
 
 ## Operational Checks
 - Worker logs:

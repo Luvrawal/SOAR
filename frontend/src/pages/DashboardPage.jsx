@@ -18,7 +18,14 @@ import { Panel } from '../components/ui/Panel'
 import { SeverityBadge } from '../components/ui/SeverityBadge'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { usePolling } from '../hooks/usePolling'
-import { api, getLastCorrelationId } from '../lib/api'
+import { getLastCorrelationId } from '../lib/api'
+import {
+  fetchIncidentsPage,
+  fetchObservabilityMetrics,
+  fetchQueueMetrics,
+  fetchSimulationSummary,
+  runSimulation,
+} from '../lib/services/socService'
 
 function groupByDate(items) {
   const counts = new Map()
@@ -96,10 +103,10 @@ export function DashboardPage() {
     setError('')
     try {
       const [summaryRes, incidentsRes, observabilityRes, queueMetricsRes] = await Promise.allSettled([
-        api.get('/simulations/summary', { params: { limit: 50 } }),
-        api.get('/incidents', { params: { page: 1, page_size: 50 } }),
-        api.get('/observability/metrics'),
-        api.get('/simulations/queue-metrics', { params: { window_hours: 24 } }),
+        fetchSimulationSummary(50),
+        fetchIncidentsPage(1, 50),
+        fetchObservabilityMetrics(),
+        fetchQueueMetrics(24),
       ])
 
       if (summaryRes.status !== 'fulfilled') {
@@ -109,9 +116,9 @@ export function DashboardPage() {
         throw incidentsRes.reason
       }
 
-      const summaryData = summaryRes.value.data.data
+      const summaryData = summaryRes.value
       setSummary(summaryData)
-      const incidentItems = incidentsRes.value.data.data.items || []
+      const incidentItems = incidentsRes.value.items || []
       setIncidents(incidentItems)
 
       setEndpointStatus({
@@ -124,7 +131,7 @@ export function DashboardPage() {
 
       let resolvedQueueMetrics = summaryData?.queue || null
       if (!resolvedQueueMetrics && queueMetricsRes.status === 'fulfilled') {
-        resolvedQueueMetrics = queueMetricsRes.value?.data?.data?.queue || null
+        resolvedQueueMetrics = queueMetricsRes.value || null
       }
 
       if (!resolvedQueueMetrics) {
@@ -139,7 +146,7 @@ export function DashboardPage() {
       setQueueMetrics(resolvedQueueMetrics)
 
       if (observabilityRes.status === 'fulfilled') {
-        setObservability(observabilityRes.value.data?.data?.metrics || null)
+        setObservability(observabilityRes.value || null)
       } else {
         setObservability(null)
         const reason = String(observabilityRes.reason?.message || '')
@@ -172,8 +179,8 @@ export function DashboardPage() {
     setRunningSimulation(simulationType)
     setError('')
     try {
-      const response = await api.post(`/simulations/${simulationType}`, null, { params: { count } })
-      const latestIncidentId = response.data?.data?.latest_incident_id
+      const simulationResult = await runSimulation(simulationType, count)
+      const latestIncidentId = simulationResult.latest_incident_id
       await fetchDashboardData()
       if (latestIncidentId) {
         navigate(`/incidents/${latestIncidentId}`)

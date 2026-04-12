@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     ALIENVAULT_API_KEY: str | None = None
     MALWAREBAZAAR_API_KEY: str | None = None
     SOAR_REPORTS_DIR: str = "./reports"
+    SOAR_REPORT_PROFILE: Literal["full", "redacted"] = "full"
     SOAR_DATASET_DIR: str | None = None
     THREAT_INTEL_TIMEOUT_SECONDS: int = 10
     THREAT_INTEL_MAX_RETRIES: int = 1

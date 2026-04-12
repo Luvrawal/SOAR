@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     setAuthTokenGetter(() => token)
-    setUnauthorizedHandler(() => () => logout(true))
+    setUnauthorizedHandler(() => logout(true))
 
     return () => {
       setAuthTokenGetter(null)
